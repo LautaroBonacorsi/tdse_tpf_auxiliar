@@ -51,7 +51,9 @@ typedef enum task_system_ev {
 	EV_SYS_DOWN,
 	EV_SYS_ENTER,
 	EV_SYS_NEXT,
-	EV_SYS_ESCAPE
+	EV_SYS_ESCAPE,
+	EV_SYS_SPO2_DATA,
+	EV_SYS_SENSOR_ERR
 } task_system_ev_t;
 
 /* States of Task System and Setup Menu */

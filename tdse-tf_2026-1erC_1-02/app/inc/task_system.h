@@ -51,6 +51,8 @@ extern "C" {
 /********************** external functions declaration ***********************/
 extern void task_system_init(void *parameters);
 extern void task_system_update(void *parameters);
+extern void task_system_update_config_from_telemetry(int32_t spo2_min, int32_t bpm_min, int32_t bpm_max, int8_t alarm_en);
+extern bool task_system_is_alarm_active(void);
 
 /********************** End of CPP guard *************************************/
 #ifdef __cplusplus

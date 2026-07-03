@@ -84,6 +84,20 @@ extern "C" {
 #define LOGGER_INFO(...)
 #endif
 
+#if 1 == LOGGER_CONFIG_ENABLE
+#define LOGGER_ERROR(...)\
+	__asm("CPSID i");	/* disable interrupts*/\
+	{\
+		logger_log_print_("[error] ");\
+    	logger_msg_len = snprintf(logger_msg, (LOGGER_CONFIG_MAXLEN - 1), __VA_ARGS__);\
+    	logger_log_print_(logger_msg);\
+    	logger_log_print_("\n");\
+	}\
+	__asm("CPSIE i");	/* enable interrupts*/
+#else
+#define LOGGER_ERROR(...)
+#endif
+
 #define GET_NAME(var)  #var
 
 /********************** typedef **********************************************/

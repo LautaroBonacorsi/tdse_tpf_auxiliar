@@ -14,11 +14,12 @@ Todos los periféricos externos y circuitos descritos a continuación operan con
 El módulo MAX30102 se comunica vía I2C y utiliza un pin de interrupción para notificar cuando los datos están listos.
 
 *   **Conexiones:**
-    *   **VIN / VCC:** Pin `3V3` de la Nucleo.
-    *   **GND:** Pin `GND` de la Nucleo.
+    *   **VIN / VCC:** Pin `3V3` de la Nucleo. *(Importante: usar siempre 3.3V, nunca 5V).*
     *   **SCL:** Pin `PB6` (I2C1_SCL).
     *   **SDA:** Pin `PB7` (I2C1_SDA).
     *   **INT:** Pin `PB10` (MAX_INT_PIN).
+    *   **IRD y RD:** **¡Dejarlos sin conectar!** Estos pines están ahí por si se quisiera manejar los LEDs infrarrojo y rojo directamente desde fuera, pero nuestro código usa los drivers internos del propio chip MAX30102 vía I2C.
+    *   **GND:** Pin `GND` de la Nucleo.
 *   **Componentes Adicionales:** 
     *   **Resistores Pull-up I2C:** Las líneas I2C (SDA y SCL) requieren resistencias *pull-up* hacia 3.3V. **Valor recomendado:** `4.7 kΩ`. *Nota: Muchos módulos MAX30102 ya incluyen estas resistencias en su placa (PCB). Si tu módulo las tiene, no es necesario agregarlas externamente.*
 *   **Por qué:** El código configura el periférico `I2C1` en los pines `PB6` y `PB7`. El pin `PB10` se usa para leer las interrupciones hardware que genera el sensor (ej. "Dato listo" o "Dedo detectado"), evitando así consultar continuamente (polling) al sensor y ahorrando CPU.
@@ -46,7 +47,21 @@ El proyecto incluye soporte para una pantalla LCD (usualmente con módulo adapta
 
 ---
 
-## 4. Botones de Control (Pulsadores)
+## 4. Módulo RTC y EEPROM (AT24C32 / DS1307)
+Este módulo "Tiny RTC I2C" incluye tanto un Reloj de Tiempo Real (DS1307) como una memoria EEPROM (AT24C32). Al igual que el LCD y el MAX30102, se comunica mediante el bus I2C.
+
+*   **Conexiones:**
+    Puedes usar cualquiera de las dos tiras de pines que trae el módulo, ya que internamente están unidas para I2C y alimentación.
+    *   **VCC:** Pin `3V3` de la Nucleo. *Nota: Aunque el módulo soporta 5V, es indispensable alimentarlo con 3.3V para que sus resistencias pull-up internas mantengan el bus I2C en niveles de 3.3V, protegiendo así al MAX30102 y al microcontrolador.*
+    *   **GND:** Pin `GND` de la Nucleo.
+    *   **SCL:** Pin `PB6` de la Nucleo (I2C1_SCL).
+    *   **SDA:** Pin `PB7` de la Nucleo (I2C1_SDA).
+    *   **DS, SQ, BAT:** Dejarlos sin conectar. (DS es para un sensor de temperatura 1-wire, SQ es una salida de frecuencia, y BAT es para medir voltaje).
+*   **Por qué:** Seguimos compartiendo el bus `I2C1`. El protocolo I2C permite conectar múltiples chips a los mismos cables (`PB6` y `PB7`), ya que cada uno escucha a una "dirección" única. La EEPROM típicamente responde a la dirección `0x50` y el RTC a `0x68`, sin interferir con el LCD o el MAX30102.
+
+---
+
+## 5. Botones de Control (Pulsadores)
 El sistema cuenta con 4 botones (`MENU`, `UP`, `DOWN`, `ACK`). En el código se define el estado de presionado como `BTN_PRESSED` = `GPIO_PIN_SET` (alto, 3.3V), por lo tanto, deben conectarse utilizando una configuración **Pull-Down**.
 
 *   **Conexiones de Pines:**
@@ -65,7 +80,7 @@ El sistema cuenta con 4 botones (`MENU`, `UP`, `DOWN`, `ACK`). En el código se 
 
 ---
 
-## 5. DIP Switch (Configuraciones)
+## 6. DIP Switch (Configuraciones)
 El DIP switch de 4 posiciones se utiliza para establecer opciones de configuración. Funciona con la misma lógica que los botones (`DIP_ON` = `GPIO_PIN_SET`).
 
 *   **Conexiones de Pines:**
@@ -82,7 +97,7 @@ El DIP switch de 4 posiciones se utiliza para establecer opciones de configuraci
 
 ---
 
-## 6. LEDs Indicadores
+## 7. LEDs Indicadores
 Se definen dos LEDs indicadores externos: Amarillo y Rojo.
 
 *   **Conexiones de Pines:**
@@ -98,19 +113,27 @@ Se definen dos LEDs indicadores externos: Amarillo y Rojo.
 
 ---
 
-## 7. Salida PWM - Zumbador (Buzzer) o LED Extra
+## 8. Salida PWM - Zumbador (Buzzer) o LED Extra
 El código inicializa el temporizador `TIM3` con salida PWM en el canal 1.
 *   **Pin de Conexión:** Pin `PA6` (TIM3_CH1).
 *   **Uso probable:** Un buzzer pasivo para generar tonos/alarmas sonoras, o para atenuación de un LED.
-*   **Esquema de conexión (Buzzer Pasivo):** Conectar el terminal positivo del buzzer pasivo a `PA6`, y el terminal negativo a `GND`. Si el buzzer requiere más corriente de la que puede entregar el pin de la placa, se deberá usar un transistor NPN (ej. 2N2222) como interruptor, más una resistencia de `1 kΩ` en la base.
+*   **Esquema de conexión (Buzzer Pasivo):** 
+    *   **Si tienes un módulo de buzzer (con plaquita y 3 pines):** Estos módulos ya traen el transistor integrado. Conecta VCC a 3.3V o 5V, GND a GND, y el pin de señal (I/O) directo a `PA6`.
+    *   **Si tienes el componente suelto (cilindro negro con 2 patitas):** Conecta el pin positivo a `PA6` mediante una resistencia de unos `100 Ω a 330 Ω` en serie, y el negativo a `GND`. La resistencia protege el pin de la STM32 limitando la corriente a un nivel seguro (menos de 20mA). Si al probarlo el sonido es muy bajo, significa que el buzzer necesita más corriente. En ese caso (y solo en ese caso), se requiere quitar la resistencia y usar un transistor NPN (ej. 2N2222) como interruptor externo.
 
 ---
 
-## 8. Comunicación Serial UART (Opcional)
-El código inicializa dos interfaces UART:
-1.  **USART2 (Pines PA2/PA3):** Estos pines están físicamente conectados al módulo ST-LINK en la misma placa Nucleo. Proporcionan el "Virtual COM Port". No necesitas conectar nada externamente; simplemente usa un cable USB y un software de terminal (Putty, TeraTerm) a 115200 baudios (usualmente) para ver los logs del sistema (`LOGGER_INFO`).
-2.  **USART1 (Pines PA9/PA10):** Estos pines (PA9=TX, PA10=RX) están disponibles para conectarse a un periférico externo serial, como un módulo Bluetooth HC-05 u otro dispositivo.
-    *   *Nota de cruce:* Si conectas un módulo, recuerda que el `PA9 (TX)` de la Nucleo va al `RX` del módulo, y el `PA10 (RX)` de la Nucleo va al `TX` del módulo.
+## 9. Comunicación Serial y Módulo Bluetooth HM-10
+El código inicializa dos interfaces UART. La USART1 se utiliza para enviar datos de telemetría a través del módulo Bluetooth HM-10 (placa base ZS-040).
+
+*   **Conexiones del Módulo HM-10 (ZS-040):**
+    *   **VCC:** Pin `5V` de la Nucleo. *(El módulo dice Power: 3.6V-6V, por lo que necesita 5V para que su regulador interno trabaje bien y genere los 3.3V internos).*
+    *   **GND:** Pin `GND` de la Nucleo.
+    *   **TXD:** Pin `PA10` (RX de la Nucleo USART1). *(El módulo transmite a 3.3V, seguro para la placa).*
+    *   **RXD:** Pin `PA9` (TX de la Nucleo USART1). *(La placa transmite a 3.3V, ideal para el nivel del módulo).*
+    *   **STATE / EN:** Dejarlos sin conectar.
+*   **Log de Depuración (Virtual COM Port):**
+    La **USART2** (Pines PA2/PA3) está físicamente conectada al módulo ST-LINK integrado en la placa Nucleo. No necesitas conectar nada externamente para esto; simplemente conectando el cable USB y abriendo un software de terminal a 115200 baudios podrás ver los logs del sistema (`LOGGER_INFO`).
 
 ---
 
@@ -122,6 +145,8 @@ El código inicializa dos interfaces UART:
 | MAX30102 SDA | **PB7** | I2C1_SDA | Pull-up (4.7kΩ) si no lo trae el módulo |
 | LCD I2C SCL | **PB6** | I2C1_SCL | Vía adaptador de niveles lógicos a 5V |
 | LCD I2C SDA | **PB7** | I2C1_SDA | Vía adaptador de niveles lógicos a 5V |
+| EEPROM/RTC SCL | **PB6** | I2C1_SCL | Compartido en el bus I2C (Alimentar a 3.3V) |
+| EEPROM/RTC SDA | **PB7** | I2C1_SDA | Compartido en el bus I2C (Alimentar a 3.3V) |
 | MAX30102 INT | **PB10** | Interrupción | - |
 | Botón MENU | **PC0** | Entrada GPIO | Activo en Alto (Pull-Down de 10kΩ) |
 | Botón UP | **PC1** | Entrada GPIO | Activo en Alto (Pull-Down de 10kΩ) |
@@ -134,3 +159,5 @@ El código inicializa dos interfaces UART:
 | LED Amarillo | **PB1** | Salida GPIO | Resistencia en serie 220Ω |
 | LED Rojo | **PB2** | Salida GPIO | Resistencia en serie 220Ω |
 | PWM (Buzzer) | **PA6** | TIM3_CH1 | Señal PWM |
+| HM-10 TXD | **PA10** | USART1_RX | Señal de 3.3V hacia la placa |
+| HM-10 RXD | **PA9** | USART1_TX | Señal de 3.3V desde la placa |

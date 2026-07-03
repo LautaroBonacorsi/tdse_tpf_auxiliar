@@ -55,6 +55,13 @@ static void delay_us(uint32_t us)
 static void lcd_write_byte(uint8_t val)
 {
     uint8_t data = val | LCD_BL;
+    
+    // Si el bus I2C está siendo usado por una lectura/escritura asíncrona (IT)
+    // del MAX30102 o la EEPROM, debemos esperar a que se libere.
+    while (HAL_I2C_GetState(&hi2c1) != HAL_I2C_STATE_READY) {
+        // Spin-wait (máximo ~500us para 6 bytes a 100kHz)
+    }
+    
     HAL_I2C_Master_Transmit(&hi2c1, lcd_i2c_addr, &data, 1, 10);
 }
 

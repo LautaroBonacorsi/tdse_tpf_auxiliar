@@ -48,8 +48,17 @@
 #include "task_sensor.h"
 #include "task_system.h"
 #include "task_display.h"
-#include <stdbool.h>
-#include <stddef.h>
+#include "task_display_attribute.h"
+#include "task_display_interface.h"
+
+#include "task_actuator.h"
+
+#include "driver_eeprom.h"
+#include "driver_max30102.h"
+#include "algorithm.h"
+#include "task_telemetry.h"
+
+extern I2C_HandleTypeDef hi2c1;
 
 /********************** macros and definitions *******************************/
 typedef struct {
@@ -65,7 +74,8 @@ const task_cfg_t task_cfg_list[] = {
 	{task_sensor_init, task_sensor_update, NULL},
 	{task_system_init, task_system_update, NULL},
 	{task_display_init, task_display_update, NULL},
-	/* Aquí agregaremos task_actuator, task_telemetry */
+	{task_actuator_init, task_actuator_update, NULL},
+	{task_telemetry_init, task_telemetry_update, NULL}
 };
 
 #define TASK_QTY	(sizeof(task_cfg_list)/sizeof(task_cfg_t))
@@ -97,6 +107,13 @@ void app_init(void)
 
 	/* Init Cycle Counter */
 	cycle_counter_init();
+	
+	/* Iniciar driver EEPROM (No Bloqueante) */
+	eeprom_init(&hi2c1);
+	
+	/* Iniciar MAX30102 y Algoritmo */
+	max30102_init(&hi2c1);
+	algorithm_init();
 	
     /* Go through the task arrays */
 	for (index = 0; TASK_QTY > index; index++)
@@ -135,6 +152,12 @@ void app_update(void)
 		/* Update tasks */
 		cycle_counter_reset();
 		
+		/* Update EEPROM driver state machine */
+		eeprom_update();
+		
+		/* Update MAX30102 driver state machine (polling del pin INT) */
+		max30102_update();
+		
 		/* Go through the task arrays */
 		for (index = 0; TASK_QTY > index; index++)
 		{
@@ -153,9 +176,8 @@ void app_update(void)
 
 		/* Protect shared resource */
 		__asm("CPSID i");	/* disable interrupts */
-		if (0 < g_app_tick_cnt)
+		if (g_app_tick_cnt > 0)
 		{
-			/* Update Tick Counter */
 			g_app_tick_cnt--;
 			b_time_update_required = true;
 		}
@@ -165,6 +187,36 @@ void app_update(void)
 		}
 		__asm("CPSIE i");	/* enable interrupts */
 	}
+}
+
+/********************** HAL Callbacks (Demultiplexing) ***********************/
+void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef *hi2c)
+{
+    eeprom_rx_cplt_callback(hi2c);
+}
+
+void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c)
+{
+    eeprom_tx_cplt_callback(hi2c);
+}
+
+void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)
+{
+    eeprom_error_callback(hi2c);
+}
+
+/* Declaraciones externas para callbacks de telemetría (se definen en task_telemetry.c) */
+extern void telemetry_rx_cplt_callback(UART_HandleTypeDef *huart);
+extern void telemetry_tx_cplt_callback(UART_HandleTypeDef *huart);
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    telemetry_rx_cplt_callback(huart);
+}
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+    telemetry_tx_cplt_callback(huart);
 }
 
 /********************** end of file ******************************************/

@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2026 Juan Manuel Cruz <jcruz@fi.uba.ar> <jcruz@frba.utn.edu.ar>.
  * All rights reserved.
  *
@@ -36,6 +36,7 @@
 /* Project includes */
 #include "main.h"
 #include <stdio.h>
+#include <string.h>
 /* Demo includes */
 #include "logger.h"
 #include "dwt.h"
@@ -48,6 +49,12 @@
 #include "task_display_interface.h"
 #include "task_system_attribute.h"
 #include "task_system_interface.h"
+
+#include "driver_eeprom.h"
+#include "algorithm.h"
+#include "task_actuator_attribute.h"
+#include "task_actuator_interface.h"
+extern I2C_HandleTypeDef hi2c1;
 
 /********************** macros and definitions *******************************/
 #define DEL_SYS_MIN			0ul
@@ -95,7 +102,25 @@ static bool auxAlarma = false;
 static char display_line_1[DISPLAY_COLS + 1u];
 static char display_line_2[DISPLAY_COLS + 1u];
 
+#pragma pack(push, 1)
+typedef struct {
+    uint32_t magic_word;
+    int32_t ouMax;
+    int32_t ouMin;
+    int32_t puMax;
+    int32_t puMin;
+    uint8_t oAlarma;
+    uint8_t pAlarma;
+} sys_config_t;
+#pragma pack(pop)
+
+static sys_config_t current_config;
+static sys_config_t last_saved_config;
+
 /********************** internal functions declaration ***********************/
+static void task_system_load_config(void);
+static void task_system_save_config(void);
+
 static void task_system_normal_statechart(void);
 static void task_system_setup_statechart(void);
 
@@ -152,6 +177,8 @@ void task_system_init(void *parameters)
 		p_task_system_dta->flag = false;
 	}
 
+	task_system_load_config();
+
 	task_system_set_mode(NORMAL);
 	task_system_show_normal();
 }
@@ -206,6 +233,42 @@ static void task_system_normal_statechart(void)
 		task_system_set_setup_state(ST_SYS_MENU1_SENSOR);
 		task_system_set_mode(SETUP);
 	}
+	else if (EV_SYS_SPO2_DATA == p_task_system_dta->event)
+	{
+		char line1[17];
+		char line2[17];
+		snprintf(line1, sizeof(line1), "SpO2: %3ld%%", (long)algo_current_spo2);
+		snprintf(line2, sizeof(line2), " BPM: %3ld ", (long)algo_current_bpm);
+		task_system_write_display(line1, line2);
+
+		bool spo2_crit = false;
+		bool pulse_warn = false;
+
+		if (oAlarma) {
+			if (algo_current_spo2 > ouMax || algo_current_spo2 < ouMin) {
+				spo2_crit = true;
+			}
+		}
+
+		if (pAlarma) {
+			if (algo_current_bpm > puMax || algo_current_bpm < puMin) {
+				pulse_warn = true;
+			}
+		}
+
+		if (spo2_crit) {
+			put_event_task_actuator(EV_ACT_ALARM_SPO2_CRIT);
+		} else if (pulse_warn) {
+			put_event_task_actuator(EV_ACT_ALARM_PULSE_WARN);
+		} else {
+			put_event_task_actuator(EV_ACT_ALARM_OFF);
+		}
+	}
+	else if (EV_SYS_SENSOR_ERR == p_task_system_dta->event)
+	{
+		task_system_write_display("NO FINGER DETECT", "WAITING...      ");
+		put_event_task_actuator(EV_ACT_ALARM_OFF);
+	}
 
 	p_task_system_dta->flag = false;
 }
@@ -253,6 +316,7 @@ static void task_system_setup_statechart(void)
 				 * Esta transición no aparece en el modelo,
 				 * pero es necesaria para salir de SETUP.
 				 */
+				task_system_save_config();
 
 				task_system_set_mode(NORMAL);
 				task_system_show_normal();
@@ -665,10 +729,97 @@ static void task_system_write_display(const char *line_1,
 		display_line_2);
 }
 
-
 static void task_system_set_mode(
 	task_system_mode_t task_system_mode)
 {
 	g_task_system_mode = task_system_mode;
 }
+
+static void task_system_load_config(void)
+{
+    sys_config_t temp_config;
+    
+    if (HAL_I2C_Mem_Read(&hi2c1, EEPROM_I2C_ADDR, 0x0000, I2C_MEMADD_SIZE_16BIT, (uint8_t*)&temp_config, sizeof(sys_config_t), 100) == HAL_OK)
+    {
+        if (temp_config.magic_word == 0x12345678)
+        {
+            ouMax = temp_config.ouMax;
+            ouMin = temp_config.ouMin;
+            puMax = temp_config.puMax;
+            puMin = temp_config.puMin;
+            oAlarma = (temp_config.oAlarma != 0);
+            pAlarma = (temp_config.pAlarma != 0);
+            
+            last_saved_config = temp_config;
+            
+            LOGGER_INFO("Configuracion cargada desde EEPROM con exito.");
+        }
+        else
+        {
+            LOGGER_INFO("EEPROM vacia o magic word incorrecto. Se usaran valores por defecto.");
+            memset(&last_saved_config, 0, sizeof(sys_config_t));
+        }
+    }
+    else
+    {
+        LOGGER_ERROR("Error leyendo EEPROM al arrancar.");
+        memset(&last_saved_config, 0, sizeof(sys_config_t));
+    }
+}
+
+static void task_system_save_config(void)
+{
+    sys_config_t new_config;
+    new_config.magic_word = 0x12345678;
+    new_config.ouMax = ouMax;
+    new_config.ouMin = ouMin;
+    new_config.puMax = puMax;
+    new_config.puMin = puMin;
+    new_config.oAlarma = oAlarma ? 1 : 0;
+    new_config.pAlarma = pAlarma ? 1 : 0;
+    
+    if (memcmp(&new_config, &last_saved_config, sizeof(sys_config_t)) == 0)
+    {
+        LOGGER_INFO("Configuracion sin cambios. Se omite escritura en EEPROM.");
+        return;
+    }
+    
+    current_config = new_config;
+    last_saved_config = new_config;
+    
+    if (eeprom_write_it(0x0000, (uint8_t*)&current_config, sizeof(sys_config_t)) == EEPROM_OK)
+    {
+        LOGGER_INFO("Guardando configuracion modificada en EEPROM...");
+    }
+    else
+    {
+        LOGGER_ERROR("Fallo al iniciar el guardado asincrono de EEPROM.");
+    }
+}
+
+void task_system_update_config_from_telemetry(int32_t spo2_min, int32_t bpm_min, int32_t bpm_max, int8_t alarm_en)
+{
+    if (spo2_min >= 0) ouMin = spo2_min;
+    if (bpm_min >= 0) puMin = bpm_min;
+    if (bpm_max >= 0) puMax = bpm_max;
+    if (alarm_en == 1) {
+        oAlarma = true;
+        pAlarma = true;
+    } else if (alarm_en == 0) {
+        oAlarma = false;
+        pAlarma = false;
+    }
+    task_system_save_config();
+}
+
+bool task_system_is_alarm_active(void)
+{
+    extern int32_t algo_current_spo2;
+    extern int32_t algo_current_bpm;
+    
+    if (oAlarma && (algo_current_spo2 > ouMax || algo_current_spo2 < ouMin)) return true;
+    if (pAlarma && (algo_current_bpm > puMax || algo_current_bpm < puMin)) return true;
+    return false;
+}
+
 /********************** end of file ******************************************/
