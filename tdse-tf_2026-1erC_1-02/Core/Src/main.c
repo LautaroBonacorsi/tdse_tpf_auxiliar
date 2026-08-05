@@ -128,6 +128,9 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
     app_update();
+    
+    /* Bajo Consumo: Suspender el procesador hasta la proxima interrupcion (ej. SysTick) */
+    __WFI();
   }
   /* USER CODE END 3 */
 }

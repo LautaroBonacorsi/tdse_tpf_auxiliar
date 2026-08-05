@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (c) 2026 Juan Manuel Cruz <jcruz@fi.uba.ar> <jcruz@frba.utn.edu.ar>.
  * All rights reserved.
  *
@@ -6,15 +6,15 @@
  * modification, are permitted provided that the following conditions are met:
  *
  * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
+ *	notice, this list of conditions and the following disclaimer.
  *
  * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
+ *	notice, this list of conditions and the following disclaimer in the
+ *	documentation and/or other materials provided with the distribution.
  *
  * 3. Neither the name of the copyright holder nor the names of its
- *    contributors may be used to endorse or promote products derived from
- *    this software without specific prior written permission.
+ *	contributors may be used to endorse or promote products derived from
+ *	this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
@@ -37,6 +37,7 @@
 #include "main.h"
 #include <stdio.h>
 #include <string.h>
+
 /* Demo includes */
 #include "logger.h"
 #include "dwt.h"
@@ -64,6 +65,8 @@ extern I2C_HandleTypeDef hi2c1;
 typedef enum task_system_mode {
 	NORMAL,
 	SETUP,
+	BLOCKED_RESET,
+	BLOCKED_ERROR,
 	MODE_QTY
 } task_system_mode_t;
 
@@ -75,47 +78,49 @@ task_system_dta_t task_system_dta_list[SYSTEM_DTA_QTY];
 /*
  * Variables del modelo de Itemis.
  *
- * selectedSensor:
+ * g_selected_sensor:
  * 0 = oximetro
  * 1 = pulsometro
  *
- * paramUmbral:
+ * g_param_umbral:
  * 0 = umbral minimo
  * 1 = umbral maximo
  * 2 = alarma
  */
-static int32_t selectedSensor = 0;
-static int32_t paramUmbral = 0;
 
-static int32_t ouMax = 10;
-static int32_t ouMin = 0;
-static bool oAlarma = false;
+static int32_t g_selected_sensor = 0;
+static int32_t g_param_umbral = 0;
 
-static int32_t puMax = 10;
-static int32_t puMin = 0;
-static bool pAlarma = false;
+static int32_t g_ou_max = 10;
+static int32_t g_ou_min = 0;
+static bool b_o_alarma = false;
 
-static int32_t auxMax = 10;
-static int32_t auxMin = 0;
-static bool auxAlarma = false;
+static int32_t g_pu_max = 10;
+static int32_t g_pu_min = 0;
+static bool b_p_alarma = false;
+
+static int32_t g_aux_max = 10;
+static int32_t g_aux_min = 0;
+static bool b_aux_alarma = false;
 
 static char display_line_1[DISPLAY_COLS + 1u];
 static char display_line_2[DISPLAY_COLS + 1u];
 
 #pragma pack(push, 1)
 typedef struct {
-    uint32_t magic_word;
-    int32_t ouMax;
-    int32_t ouMin;
-    int32_t puMax;
-    int32_t puMin;
-    uint8_t oAlarma;
-    uint8_t pAlarma;
+	uint32_t magic_word;
+	int32_t g_ou_max;
+	int32_t g_ou_min;
+	int32_t g_pu_max;
+	int32_t g_pu_min;
+	uint8_t b_o_alarma;
+	uint8_t b_p_alarma;
 } sys_config_t;
 #pragma pack(pop)
 
-static sys_config_t current_config;
-static sys_config_t last_saved_config;
+static sys_config_t g_current_config;
+static sys_config_t g_last_saved_config;
+static uint8_t g_current_profile_id = 1;
 
 /********************** internal functions declaration ***********************/
 static void task_system_load_config(void);
@@ -179,8 +184,11 @@ void task_system_init(void *parameters)
 
 	task_system_load_config();
 
-	task_system_set_mode(NORMAL);
-	task_system_show_normal();
+	if ((BLOCKED_RESET != g_task_system_mode) && (BLOCKED_ERROR != g_task_system_mode))
+	{
+		task_system_set_mode(NORMAL);
+		task_system_show_normal();
+	}
 }
 
 
@@ -189,22 +197,25 @@ void task_system_update(void *parameters)
 	switch (g_task_system_mode)
 	{
 		case NORMAL:
-
 			task_system_normal_statechart();
-
 			break;
 
 		case SETUP:
-
 			task_system_setup_statechart();
-
+			break;
+			
+		case BLOCKED_RESET:
+		case BLOCKED_ERROR:
+			/* Ignorar eventos, mantener bloqueado */
+			if (true == any_event_task_system())
+			{
+				get_event_task_system(); /* Consumir y descartar */
+			}
 			break;
 
 		default:
-
 			task_system_set_mode(NORMAL);
 			task_system_show_normal();
-
 			break;
 	}
 }
@@ -237,21 +248,21 @@ static void task_system_normal_statechart(void)
 	{
 		char line1[17];
 		char line2[17];
-		snprintf(line1, sizeof(line1), "SpO2: %3ld%%", (long)algo_current_spo2);
-		snprintf(line2, sizeof(line2), " BPM: %3ld ", (long)algo_current_bpm);
+		snprintf(line1, sizeof(line1), "SpO2: %3ld%%", (long)g_algo_current_spo2);
+		snprintf(line2, sizeof(line2), " BPM: %3ld ", (long)g_algo_current_bpm);
 		task_system_write_display(line1, line2);
 
 		bool spo2_crit = false;
 		bool pulse_warn = false;
 
-		if (oAlarma) {
-			if (algo_current_spo2 > ouMax || algo_current_spo2 < ouMin) {
+		if (b_o_alarma) {
+			if (g_algo_current_spo2 > g_ou_max || g_algo_current_spo2 < g_ou_min) {
 				spo2_crit = true;
 			}
 		}
 
-		if (pAlarma) {
-			if (algo_current_bpm > puMax || algo_current_bpm < puMin) {
+		if (b_p_alarma) {
+			if (g_algo_current_bpm > g_pu_max || g_algo_current_bpm < g_pu_min) {
 				pulse_warn = true;
 			}
 		}
@@ -266,7 +277,7 @@ static void task_system_normal_statechart(void)
 	}
 	else if (EV_SYS_SENSOR_ERR == p_task_system_dta->event)
 	{
-		task_system_write_display("NO FINGER DETECT", "WAITING...      ");
+		task_system_write_display("NO FINGER DETECT", "WAITING...	  ");
 		put_event_task_actuator(EV_ACT_ALARM_OFF);
 	}
 
@@ -298,8 +309,8 @@ static void task_system_setup_statechart(void)
 
 			if (EV_SYS_NEXT == p_task_system_dta->event)
 			{
-				selectedSensor =
-					(0 == selectedSensor) ? 1 : 0;
+				g_selected_sensor =
+					(0 == g_selected_sensor) ? 1 : 0;
 
 				task_system_show_setup_state();
 			}
@@ -332,7 +343,7 @@ static void task_system_setup_statechart(void)
 
 			if (EV_SYS_NEXT == p_task_system_dta->event)
 			{
-				paramUmbral = (paramUmbral + 1) % 3;
+				g_param_umbral = (g_param_umbral + 1) % 3;
 
 				task_system_show_setup_state();
 			}
@@ -349,12 +360,12 @@ static void task_system_setup_statechart(void)
 				 * Implementación del pseudoestado Choice
 				 * del modelo de Itemis.
 				 */
-				if (0 == paramUmbral)
+				if (0 == g_param_umbral)
 				{
 					task_system_set_setup_state(
 						ST_SYS_MENU3_MINIMUM);
 				}
-				else if (1 == paramUmbral)
+				else if (1 == g_param_umbral)
 				{
 					task_system_set_setup_state(
 						ST_SYS_MENU3_MAXIMUM);
@@ -377,13 +388,13 @@ static void task_system_setup_statechart(void)
 			if (EV_SYS_NEXT ==
 				p_task_system_dta->event)
 			{
-				auxMin++;
+				g_aux_min++;
 				task_system_show_setup_state();
 			}
 			else if (EV_SYS_DOWN ==
 					 p_task_system_dta->event)
 			{
-				auxMin--;
+				g_aux_min--;
 				task_system_show_setup_state();
 			}
 			else if (EV_SYS_ESCAPE ==
@@ -391,7 +402,7 @@ static void task_system_setup_statechart(void)
 			{
 				/*
 				 * Escape cancela la edición porque
-				 * auxMin todavía no fue copiado.
+				 * g_aux_min todavía no fue copiado.
 				 */
 				task_system_set_setup_state(
 					ST_SYS_MENU2_PARAMETER);
@@ -399,18 +410,18 @@ static void task_system_setup_statechart(void)
 			else if (EV_SYS_ENTER ==
 					 p_task_system_dta->event)
 			{
-				if ((0 == selectedSensor) &&
-					(auxMin < ouMax))
+				if ((0 == g_selected_sensor) &&
+					(g_aux_min < g_ou_max))
 				{
-					ouMin = auxMin;
+					g_ou_min = g_aux_min;
 
 					task_system_set_setup_state(
 						ST_SYS_MENU2_PARAMETER);
 				}
-				else if ((1 == selectedSensor) &&
-						 (auxMin < puMax))
+				else if ((1 == g_selected_sensor) &&
+						 (g_aux_min < g_pu_max))
 				{
-					puMin = auxMin;
+					g_pu_min = g_aux_min;
 
 					task_system_set_setup_state(
 						ST_SYS_MENU2_PARAMETER);
@@ -428,13 +439,13 @@ static void task_system_setup_statechart(void)
 			if (EV_SYS_NEXT ==
 				p_task_system_dta->event)
 			{
-				auxMax++;
+				g_aux_max++;
 				task_system_show_setup_state();
 			}
 			else if (EV_SYS_DOWN ==
 					 p_task_system_dta->event)
 			{
-				auxMax--;
+				g_aux_max--;
 				task_system_show_setup_state();
 			}
 			else if (EV_SYS_ESCAPE ==
@@ -447,21 +458,21 @@ static void task_system_setup_statechart(void)
 					 p_task_system_dta->event)
 			{
 				/*
-				 * En el statechart aparece auxMin.
-				 * Acá corresponde comparar auxMax.
+				 * En el statechart aparece g_aux_min.
+				 * Acá corresponde comparar g_aux_max.
 				 */
-				if ((0 == selectedSensor) &&
-					(auxMax > ouMin))
+				if ((0 == g_selected_sensor) &&
+					(g_aux_max > g_ou_min))
 				{
-					ouMax = auxMax;
+					g_ou_max = g_aux_max;
 
 					task_system_set_setup_state(
 						ST_SYS_MENU2_PARAMETER);
 				}
-				else if ((1 == selectedSensor) &&
-						 (auxMax > puMin))
+				else if ((1 == g_selected_sensor) &&
+						 (g_aux_max > g_pu_min))
 				{
-					puMax = auxMax;
+					g_pu_max = g_aux_max;
 
 					task_system_set_setup_state(
 						ST_SYS_MENU2_PARAMETER);
@@ -479,7 +490,7 @@ static void task_system_setup_statechart(void)
 			if (EV_SYS_NEXT ==
 				p_task_system_dta->event)
 			{
-				auxAlarma = !auxAlarma;
+				b_aux_alarma = !b_aux_alarma;
 
 				task_system_show_setup_state();
 			}
@@ -492,13 +503,13 @@ static void task_system_setup_statechart(void)
 			else if (EV_SYS_ENTER ==
 					 p_task_system_dta->event)
 			{
-				if (0 == selectedSensor)
+				if (0 == g_selected_sensor)
 				{
-					oAlarma = auxAlarma;
+					b_o_alarma = b_aux_alarma;
 				}
 				else
 				{
-					pAlarma = auxAlarma;
+					b_p_alarma = b_aux_alarma;
 				}
 
 				task_system_set_setup_state(
@@ -540,25 +551,25 @@ static void task_system_set_setup_state(task_system_st_t state)
 	{
 		case ST_SYS_MENU3_MINIMUM:
 
-			auxMin = (0 == selectedSensor) ?
-					 ouMin :
-					 puMin;
+			g_aux_min = (0 == g_selected_sensor) ?
+					 g_ou_min :
+					 g_pu_min;
 
 			break;
 
 		case ST_SYS_MENU3_MAXIMUM:
 
-			auxMax = (0 == selectedSensor) ?
-					 ouMax :
-					 puMax;
+			g_aux_max = (0 == g_selected_sensor) ?
+					 g_ou_max :
+					 g_pu_max;
 
 			break;
 
 		case ST_SYS_MENU3_ALARM:
 
-			auxAlarma = (0 == selectedSensor) ?
-						oAlarma :
-						pAlarma;
+			b_aux_alarma = (0 == g_selected_sensor) ?
+						b_o_alarma :
+						b_p_alarma;
 
 			break;
 
@@ -591,7 +602,7 @@ static void task_system_show_setup_state(void)
 
 			task_system_write_display(
 				"SELECT SENSOR",
-				(0 == selectedSensor) ?
+				(0 == g_selected_sensor) ?
 				"> OXIMETER" :
 				"> PULSE METER");
 
@@ -599,18 +610,18 @@ static void task_system_show_setup_state(void)
 
 		case ST_SYS_MENU2_PARAMETER:
 
-			if (0 == paramUmbral)
+			if (0 == g_param_umbral)
 			{
 				task_system_write_display(
-					(0 == selectedSensor) ?
+					(0 == g_selected_sensor) ?
 					"OXIMETER SETUP" :
 					"PULSE SETUP",
 					"> MINIMUM");
 			}
-			else if (1 == paramUmbral)
+			else if (1 == g_param_umbral)
 			{
 				task_system_write_display(
-					(0 == selectedSensor) ?
+					(0 == g_selected_sensor) ?
 					"OXIMETER SETUP" :
 					"PULSE SETUP",
 					"> MAXIMUM");
@@ -618,7 +629,7 @@ static void task_system_show_setup_state(void)
 			else
 			{
 				task_system_write_display(
-					(0 == selectedSensor) ?
+					(0 == g_selected_sensor) ?
 					"OXIMETER SETUP" :
 					"PULSE SETUP",
 					"> ALARM");
@@ -638,7 +649,7 @@ static void task_system_show_setup_state(void)
 				display_line_2,
 				sizeof(display_line_2),
 				"VALUE: %-9ld",
-				(long)auxMin);
+				(long)g_aux_min);
 
 			put_event_task_display(
 				0,
@@ -664,7 +675,7 @@ static void task_system_show_setup_state(void)
 				display_line_2,
 				sizeof(display_line_2),
 				"VALUE: %-9ld",
-				(long)auxMax);
+				(long)g_aux_max);
 
 			put_event_task_display(
 				0,
@@ -682,7 +693,7 @@ static void task_system_show_setup_state(void)
 
 			task_system_write_display(
 				"ALARM STATE",
-				auxAlarma ?
+				b_aux_alarma ?
 				"> ON" :
 				"> OFF");
 
@@ -735,91 +746,161 @@ static void task_system_set_mode(
 	g_task_system_mode = task_system_mode;
 }
 
+static uint16_t get_eeprom_address(uint8_t profile)
+{
+	if (profile < 1 || profile > 3) profile = 1;
+	return (uint16_t)((profile - 1) * 32); /* Separados por 32 bytes */
+}
+
+static void set_default_thresholds(uint8_t profile)
+{
+	if (1 == profile)
+	{
+		g_ou_min = 92;
+		g_ou_max = 100;
+		g_pu_min = 70;
+		g_pu_max = 130;
+	}
+	else if (2 == profile)
+	{
+		g_ou_min = 90;
+		g_ou_max = 100;
+		g_pu_min = 60;
+		g_pu_max = 100;
+	}
+	else
+	{
+		g_ou_min = 88;
+		g_ou_max = 100;
+		g_pu_min = 50;
+		g_pu_max = 90;
+	}
+	b_o_alarma = true;
+	b_p_alarma = true;
+}
+
 static void task_system_load_config(void)
 {
-    sys_config_t temp_config;
-    
-    if (HAL_I2C_Mem_Read(&hi2c1, EEPROM_I2C_ADDR, 0x0000, I2C_MEMADD_SIZE_16BIT, (uint8_t*)&temp_config, sizeof(sys_config_t), 100) == HAL_OK)
-    {
-        if (temp_config.magic_word == 0x12345678)
-        {
-            ouMax = temp_config.ouMax;
-            ouMin = temp_config.ouMin;
-            puMax = temp_config.puMax;
-            puMin = temp_config.puMin;
-            oAlarma = (temp_config.oAlarma != 0);
-            pAlarma = (temp_config.pAlarma != 0);
-            
-            last_saved_config = temp_config;
-            
-            LOGGER_INFO("Configuracion cargada desde EEPROM con exito.");
-        }
-        else
-        {
-            LOGGER_INFO("EEPROM vacia o magic word incorrecto. Se usaran valores por defecto.");
-            memset(&last_saved_config, 0, sizeof(sys_config_t));
-        }
-    }
-    else
-    {
-        LOGGER_ERROR("Error leyendo EEPROM al arrancar.");
-        memset(&last_saved_config, 0, sizeof(sys_config_t));
-    }
+	bool d1 = (DIP_ON == HAL_GPIO_ReadPin(DIP1_PORT, DIP1_PIN));
+	bool d2 = (DIP_ON == HAL_GPIO_ReadPin(DIP2_PORT, DIP2_PIN));
+	bool d3 = (DIP_ON == HAL_GPIO_ReadPin(DIP3_PORT, DIP3_PIN));
+	bool d4 = (DIP_ON == HAL_GPIO_ReadPin(DIP4_PORT, DIP4_PIN));
+	
+	if (d1 && d2 && d3 && d4)
+	{
+		/* Reinicio de fabrica. Borramos las 3 posiciones (seteamos magic word a 0) */
+		sys_config_t empty_cfg;
+		memset(&empty_cfg, 0, sizeof(sys_config_t));
+		HAL_I2C_Mem_Write(&hi2c1, EEPROM_I2C_ADDR, get_eeprom_address(1), I2C_MEMADD_SIZE_16BIT, (uint8_t*)&empty_cfg, sizeof(sys_config_t), 100);
+		HAL_Delay(10);
+		HAL_I2C_Mem_Write(&hi2c1, EEPROM_I2C_ADDR, get_eeprom_address(2), I2C_MEMADD_SIZE_16BIT, (uint8_t*)&empty_cfg, sizeof(sys_config_t), 100);
+		HAL_Delay(10);
+		HAL_I2C_Mem_Write(&hi2c1, EEPROM_I2C_ADDR, get_eeprom_address(3), I2C_MEMADD_SIZE_16BIT, (uint8_t*)&empty_cfg, sizeof(sys_config_t), 100);
+		HAL_Delay(10);
+		
+		task_system_set_mode(BLOCKED_RESET);
+		task_system_write_display("Reinicio Fabrica", "Reinicie equipo ");
+		LOGGER_INFO("Bloqueado: Reset Fabrica");
+		return;
+	}
+	
+	uint8_t count = (d1?1:0) + (d2?1:0) + (d3?1:0);
+	if (1 != count)
+	{
+		task_system_set_mode(BLOCKED_ERROR);
+		task_system_write_display("Error de perfil ", "Elija 1 y reset ");
+		LOGGER_INFO("Bloqueado: Error seleccion perfil");
+		return;
+	}
+	
+	g_current_profile_id = d1 ? 1 : (d2 ? 2 : 3);
+	uint16_t mem_addr = get_eeprom_address(g_current_profile_id);
+	
+	sys_config_t temp_config;
+	if (HAL_OK == HAL_I2C_Mem_Read(&hi2c1, EEPROM_I2C_ADDR, mem_addr, I2C_MEMADD_SIZE_16BIT, (uint8_t*)&temp_config, sizeof(sys_config_t), 100))
+	{
+		if (0x12345678 == temp_config.magic_word)
+		{
+			g_ou_max = temp_config.g_ou_max;
+			g_ou_min = temp_config.g_ou_min;
+			g_pu_max = temp_config.g_pu_max;
+			g_pu_min = temp_config.g_pu_min;
+			b_o_alarma = (0 != temp_config.b_o_alarma);
+			b_p_alarma = (0 != temp_config.b_p_alarma);
+			g_last_saved_config = temp_config;
+			LOGGER_INFO("Perfil %d cargado desde EEPROM", g_current_profile_id);
+		}
+		else
+		{
+			LOGGER_INFO("EEPROM vacia para perfil %d. Cargando defaults.", g_current_profile_id);
+			set_default_thresholds(g_current_profile_id);
+			memset(&g_last_saved_config, 0, sizeof(sys_config_t));
+			task_system_save_config(); /* Guardamos defaults */
+		}
+	}
+	else
+	{
+		LOGGER_ERROR("Error I2C en EEPROM perfil %d", g_current_profile_id);
+		set_default_thresholds(g_current_profile_id);
+		memset(&g_last_saved_config, 0, sizeof(sys_config_t));
+	}
 }
 
 static void task_system_save_config(void)
 {
-    sys_config_t new_config;
-    new_config.magic_word = 0x12345678;
-    new_config.ouMax = ouMax;
-    new_config.ouMin = ouMin;
-    new_config.puMax = puMax;
-    new_config.puMin = puMin;
-    new_config.oAlarma = oAlarma ? 1 : 0;
-    new_config.pAlarma = pAlarma ? 1 : 0;
-    
-    if (memcmp(&new_config, &last_saved_config, sizeof(sys_config_t)) == 0)
-    {
-        LOGGER_INFO("Configuracion sin cambios. Se omite escritura en EEPROM.");
-        return;
-    }
-    
-    current_config = new_config;
-    last_saved_config = new_config;
-    
-    if (eeprom_write_it(0x0000, (uint8_t*)&current_config, sizeof(sys_config_t)) == EEPROM_OK)
-    {
-        LOGGER_INFO("Guardando configuracion modificada en EEPROM...");
-    }
-    else
-    {
-        LOGGER_ERROR("Fallo al iniciar el guardado asincrono de EEPROM.");
-    }
+	sys_config_t new_config;
+	new_config.magic_word = 0x12345678;
+	new_config.g_ou_max = g_ou_max;
+	new_config.g_ou_min = g_ou_min;
+	new_config.g_pu_max = g_pu_max;
+	new_config.g_pu_min = g_pu_min;
+	new_config.b_o_alarma = b_o_alarma ? 1 : 0;
+	new_config.b_p_alarma = b_p_alarma ? 1 : 0;
+	
+	if (0 == memcmp(&new_config, &g_last_saved_config, sizeof(sys_config_t)))
+	{
+		return;
+	}
+	
+	g_current_config = new_config;
+	g_last_saved_config = new_config;
+	uint16_t mem_addr = get_eeprom_address(g_current_profile_id);
+	
+	if (EEPROM_OK == eeprom_write_it(mem_addr, (uint8_t*)&g_current_config, sizeof(sys_config_t)))
+	{
+		LOGGER_INFO("Guardando configuracion asincrono...");
+	}
 }
 
 void task_system_update_config_from_telemetry(int32_t spo2_min, int32_t bpm_min, int32_t bpm_max, int8_t alarm_en)
 {
-    if (spo2_min >= 0) ouMin = spo2_min;
-    if (bpm_min >= 0) puMin = bpm_min;
-    if (bpm_max >= 0) puMax = bpm_max;
-    if (alarm_en == 1) {
-        oAlarma = true;
-        pAlarma = true;
-    } else if (alarm_en == 0) {
-        oAlarma = false;
-        pAlarma = false;
-    }
-    task_system_save_config();
+	if (spo2_min >= 0) g_ou_min = spo2_min;
+	if (bpm_min >= 0) g_pu_min = bpm_min;
+	if (bpm_max >= 0) g_pu_max = bpm_max;
+	if (alarm_en == 1) {
+		b_o_alarma = true;
+		b_p_alarma = true;
+	} else if (alarm_en == 0) {
+		b_o_alarma = false;
+		b_p_alarma = false;
+	}
+	task_system_save_config();
 }
 
 bool task_system_is_alarm_active(void)
 {
-    extern int32_t algo_current_spo2;
-    extern int32_t algo_current_bpm;
-    
-    if (oAlarma && (algo_current_spo2 > ouMax || algo_current_spo2 < ouMin)) return true;
-    if (pAlarma && (algo_current_bpm > puMax || algo_current_bpm < puMin)) return true;
-    return false;
+	extern int32_t g_algo_current_spo2;
+	extern int32_t g_algo_current_bpm;
+	
+	/* Master switch overriding */
+	if (DIP_OFF == HAL_GPIO_ReadPin(DIP4_PORT, DIP4_PIN))
+	{
+		return false;
+	}
+	
+	if (b_o_alarma && (g_algo_current_spo2 > g_ou_max || g_algo_current_spo2 < g_ou_min)) return true;
+	if (b_p_alarma && (g_algo_current_bpm > g_pu_max || g_algo_current_bpm < g_pu_min)) return true;
+	return false;
 }
 
 /********************** end of file ******************************************/

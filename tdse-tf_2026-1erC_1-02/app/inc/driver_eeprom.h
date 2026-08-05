@@ -19,17 +19,17 @@ extern "C" {
 
 /* Estructura para configuración de EEPROM */
 typedef struct {
-    I2C_HandleTypeDef *hi2c;
-    uint16_t device_address;
-    uint16_t page_size;    // e.g. 32 for AT24C32, 64 for AT24C256
+	I2C_HandleTypeDef *hi2c;
+	uint16_t device_address;
+	uint16_t page_size;    // e.g. 32 for AT24C32, 64 for AT24C256
 } eeprom_cfg_t;
 
 /* Status codes */
 typedef enum {
-    EEPROM_OK = 0,
-    EEPROM_BUSY,
-    EEPROM_ERROR,
-    EEPROM_READY
+	EEPROM_OK = 0,
+	EEPROM_BUSY,
+	EEPROM_ERROR,
+	EEPROM_READY
 } eeprom_status_t;
 
 void eeprom_init(I2C_HandleTypeDef *hi2c);
