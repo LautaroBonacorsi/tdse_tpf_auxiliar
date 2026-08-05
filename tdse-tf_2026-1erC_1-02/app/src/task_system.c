@@ -781,10 +781,13 @@ static void set_default_thresholds(uint8_t profile)
 
 static void task_system_load_config(void)
 {
-	bool d1 = (DIP_ON == HAL_GPIO_ReadPin(DIP1_PORT, DIP1_PIN));
-	bool d2 = (DIP_ON == HAL_GPIO_ReadPin(DIP2_PORT, DIP2_PIN));
-	bool d3 = (DIP_ON == HAL_GPIO_ReadPin(DIP3_PORT, DIP3_PIN));
-	bool d4 = (DIP_ON == HAL_GPIO_ReadPin(DIP4_PORT, DIP4_PIN));
+	bool d4 = (DIP_ON == HAL_GPIO_ReadPin(DIP1_PORT, DIP1_PIN));
+	bool d3 = (DIP_ON == HAL_GPIO_ReadPin(DIP2_PORT, DIP2_PIN));
+	bool d2 = (DIP_ON == HAL_GPIO_ReadPin(DIP3_PORT, DIP3_PIN));
+	bool d1 = (DIP_ON == HAL_GPIO_ReadPin(DIP4_PORT, DIP4_PIN));
+//	if(d2 == 1){
+		//printf("d2 = 1");
+	//}
 	
 	if (d1 && d2 && d3 && d4)
 	{
