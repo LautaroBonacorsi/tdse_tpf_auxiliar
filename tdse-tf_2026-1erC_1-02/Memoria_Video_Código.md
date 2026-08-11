@@ -421,7 +421,7 @@ El bus I2C1 utiliza `PB6` y `PB7` y conecta MAX30102, EEPROM y LCD. USART1 utili
 | HM-10 RX | `PA9` | `USART1_TX` |
 | HM-10 TX | `PA10` | `USART1_RX` |
 
-*Tabla 3.1 — Asignación de pines del MMSV.*
+*Tabla 3.1 - Asignación de pines del MMSV.*
 
 ### 3.2.7 Esquemático y montaje final
 
@@ -469,7 +469,7 @@ La lista de tareas contiene cinco entradas:
 | 4 | `task_actuator` | Patrones de LEDs y buzzer |
 | 5 | `task_telemetry` | Transmisión y recepción mediante USART1 |
 
-*Tabla 3.2 — Tareas ejecutadas por la aplicación.*
+*Tabla 3.2 - Tareas ejecutadas por la aplicación.*
 
 ### 3.3.3 Comunicación por eventos
 
