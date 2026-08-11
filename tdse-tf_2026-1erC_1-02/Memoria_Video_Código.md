@@ -588,13 +588,14 @@ Figura 4.1: Reporte del Build Analyzer.
 ## 4.3 Medición y análisis de tiempos (WCET)
 El análisis se ejecutó usando el contador de ciclos del procesador (DWT->CYCCNT).
 
-Tabla 4.1: Peores tiempos de ejecución medidos
 | Tarea | WCET [µs] | Observaciones de peor caso |
 | :--- | :---: | :--- |
 | task_system_update() | [XX] | Salto a ALARMA_MEDICA tras cálculo. |
 | task_sensor_update() | [XX] | Lectura FIFO completa del MAX30102 (vía I2C). |
 | task_bluetooth_update() | [XX] | Tramas largas por UART. |
 | task_actuator_update() | [XX] | Actualización intensa del LCD. |
+
+*Tabla 4.1 - Peores tiempos de ejecución medidos*
 
 Conclusión parcial: La sumatoria máxima cumple holgadamente la condición menor a 1000 µs exigida para el super-loop.
 
@@ -609,15 +610,28 @@ Sabiendo que U = Σ (WCET / T):
 Factor de Uso Total (U): [XX] %
 
 ## 4.5 Medición y análisis de consumo
-Se utilizó amperímetro en los rieles de 5 V y 3,3 V, y osciloscopio para detectar los picos de las transmisiones.
+Para evaluar el consumo energético del prototipo se utilizó un multímetro digital PRO'SKIT MT-1232 conectado en serie con cada linea de alimentación. Se midio la corriente en los rieles de 5 V y 3,3 V de forma separada tanto para el funcionamiento en modo de operación normal como en la condición de bajo consumo, y osciloscopio para detectar los picos de las transmisiones.
 
-Tabla 4.2: Consumo energético medido
+La potencia eléctrica se estimó a partir de los valores nominales de tensión y la corriente máxima observada, mediante la siguiente expresión:
+
+$$
+P = V \cdot I
+$$
+
+donde $P$ es la potencia, $V$ es la tensión del riel e $I$ es la corriente medida.
+
 | Estado | Riel | Corriente Pico | Potencia | Observaciones |
 | :--- | :---: | :---: | :---: | :--- |
-| Normal | 5 V | [X] mA | [X] mW | BT + LCD activo. |
-| Normal | 3,3 V | [X] mA | [X] mW | Procesamiento y lectura sensor I2C. |
-| Bajo Consumo | 5 V | [X] mA | [X] mW | Modo sleep (LCD off / BT low power). |
-| Bajo Consumo | 3,3 V| [X] mA | [X] mW | Sistema en estado WFI. |
+| Normal | 5 V | 61,2 mA | 306 mW | BT + LCD activo. |
+| Normal | 3,3 V | 16,60 mA | 54,78 mW | Procesamiento y lectura sensor I2C. |
+| Bajo Consumo | 5 V | 50,5 mA | 252,5 mW | Modo sleep (LCD off / BT low power). |
+| Bajo Consumo | 3,3 V| 14,74 mA | 252,5 mW | Sistema en estado WFI. |
+
+*Tabla 4.2 - Consumo energético medido*
+
+Los resultados muestran una reducción del consumo al operar en modo bajo consumo. En el riel de 5 V, la corriente disminuyó de 61,2 mA a 50,5 mA, lo que representa una reducción aproximada del 17,5 %. En el riel de 3,3 V, la corriente disminuyó de 16,60 mA a 14,74 mA, equivalente a una reducción aproximada del 11,2 %.
+
+Los valores de potencia informados son estimaciones calculadas a partir de la tensión nominal de cada riel. Las mediciones de ambos rieles se realizaron por separado, por lo que no deben sumarse automáticamente sin considerar el circuito de alimentación y la procedencia de cada tensión.
 
 ---
 
