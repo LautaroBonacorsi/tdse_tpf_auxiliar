@@ -661,6 +661,4 @@ Entre los usos realizados se incluyen:
 
 # Bibliografía
 
-\[1\] Lutenberg, A., Gómez, P., & Pernía, E. (2023). *A beginner’s guide to designing embedded system applications on Arm Cortex-M microcontrollers*. Arm Education Media. https://www.arm.com/resources/education/books/designing-embedded-systems
-
-\[2\] Beuchat, R., Depraz, F., Guerrieri, A., & Kashani, S. (2021). *Fundamentals of system-on-chip design on Arm Cortex-M microcontrollers*. Arm Education Media.
+\[1\] Beuchat, R., Depraz, F., Guerrieri, A., & Kashani, S. (2021). *Fundamentals of system-on-chip design on Arm Cortex-M microcontrollers*. Arm Education Media.
